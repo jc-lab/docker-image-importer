@@ -30,6 +30,7 @@ type AppFlags struct {
 
 type ManifestFile struct {
 	repository  string
+	name        string
 	digestType  string
 	digestValue string
 	tag         string
@@ -52,6 +53,7 @@ type ArchiveContext struct {
 }
 
 var regexpManifestFile, _ = regexp.Compile("^(.+)/manifests/([^/:]+):(.+)$")
+var regexpTagManifestFile, _ = regexp.Compile("^(.+)/manifests/([^/:]+)$")
 var regexpTagFile, _ = regexp.Compile("^(.+)/tags/(.+)$")
 var regxpBlobFile, _ = regexp.Compile("^blob/([^/:]+):(.+)$")
 
@@ -133,13 +135,12 @@ func (ctx *ArchiveContext) parseArchive(file string) error {
 			return err
 		}
 
-		groups := regexpManifestFile.FindStringSubmatch(header.Name)
+		groups := regexpTagManifestFile.FindStringSubmatch(header.Name)
 		if groups != nil {
-			name := groups[1]
-			digestType := groups[2]
-			digestValue := groups[3]
+			repo := groups[1]
+			tag := groups[2]
 
-			log.Printf("MANIFEST: " + name + "@" + digestType + ":" + digestValue)
+			log.Printf("MANIFEST: " + repo + ":" + tag)
 
 			data, err := io.ReadAll(tarReader)
 			if err != nil {
@@ -147,7 +148,34 @@ func (ctx *ArchiveContext) parseArchive(file string) error {
 			}
 
 			item := &ManifestFile{
-				repository:  name,
+				repository: repo,
+				name:       tag,
+				tag:        tag,
+				data:       data,
+			}
+			err = ctx.readManifest(item)
+			if err != nil {
+				return err
+			}
+			ctx.manifests = append(ctx.manifests, item)
+		}
+
+		groups = regexpManifestFile.FindStringSubmatch(header.Name)
+		if groups != nil {
+			repo := groups[1]
+			digestType := groups[2]
+			digestValue := groups[3]
+
+			log.Printf("MANIFEST: " + repo + "@" + digestType + ":" + digestValue)
+
+			data, err := io.ReadAll(tarReader)
+			if err != nil {
+				return err
+			}
+
+			item := &ManifestFile{
+				repository:  repo,
+				name:        digestType + ":" + digestValue,
 				digestType:  digestType,
 				digestValue: digestValue,
 				data:        data,
@@ -158,30 +186,32 @@ func (ctx *ArchiveContext) parseArchive(file string) error {
 			}
 			ctx.manifests = append(ctx.manifests, item)
 		}
-		groups = regexpTagFile.FindStringSubmatch(header.Name)
-		if groups != nil {
-			name := groups[1]
-			tag := groups[2]
 
-			log.Printf("MANIFEST: " + name + ":" + tag)
+		//groups = regexpTagFile.FindStringSubmatch(header.Name)
+		//if groups != nil {
+		//	name := groups[1]
+		//	tag := groups[2]
+		//
+		//	log.Printf("MANIFEST: " + name + ":" + tag)
+		//
+		//	data, err := io.ReadAll(tarReader)
+		//	if err != nil {
+		//		return err
+		//	}
+		//
+		//	item := &ManifestFile{
+		//		repository: name,
+		//		tag:        tag,
+		//		data:       data,
+		//	}
+		//
+		//	err = ctx.readManifest(item)
+		//	if err != nil {
+		//		return err
+		//	}
+		//	ctx.manifests = append(ctx.manifests, item)
+		//}
 
-			data, err := io.ReadAll(tarReader)
-			if err != nil {
-				return err
-			}
-
-			item := &ManifestFile{
-				repository: name,
-				tag:        tag,
-				data:       data,
-			}
-
-			err = ctx.readManifest(item)
-			if err != nil {
-				return err
-			}
-			ctx.manifests = append(ctx.manifests, item)
-		}
 		groups = regxpBlobFile.FindStringSubmatch(header.Name)
 		if groups != nil {
 			digestType := groups[1]
@@ -308,9 +338,9 @@ func (ctx *ArchiveContext) uploadManifests() error {
 		if item.manifestV2 != nil {
 			fullName := item.repository
 			if len(item.tag) > 0 {
-				fullName += ":" + item.tag
+				fullName += ":" + item.name
 			} else {
-				fullName += "@" + item.digestType + ":" + item.digestValue
+				fullName += "@" + item.name
 			}
 
 			m := &schema2.DeserializedManifest{}
@@ -320,7 +350,7 @@ func (ctx *ArchiveContext) uploadManifests() error {
 				continue
 			}
 
-			err = ctx.registry.PutManifest(item.repository, item.digestType+":"+item.digestValue, m)
+			err = ctx.registry.PutManifest(item.repository, item.name, m)
 			if err != nil {
 				log.Printf("Put Manifest "+fullName+" FAILED: ", err)
 				continue
