@@ -306,20 +306,27 @@ func (ctx *ArchiveContext) uploadBlobs(file string) error {
 func (ctx *ArchiveContext) uploadManifests() error {
 	for _, item := range ctx.manifests {
 		if item.manifestV2 != nil {
+			fullName := item.repository
+			if len(item.tag) > 0 {
+				fullName += ":" + item.tag
+			} else {
+				fullName += "@" + item.digestType + ":" + item.digestValue
+			}
+
 			m := &schema2.DeserializedManifest{}
 			err := m.UnmarshalJSON(item.data)
 			if err != nil {
-				log.Printf("Put Manifest "+item.repository+" FAILED: ", err)
+				log.Printf("Put Manifest "+fullName+" FAILED: ", err)
 				continue
 			}
 
 			err = ctx.registry.PutManifest(item.repository, item.digestType+":"+item.digestValue, m)
 			if err != nil {
-				log.Printf("Put Manifest "+item.repository+" FAILED: ", err)
+				log.Printf("Put Manifest "+fullName+" FAILED: ", err)
 				continue
 			}
 
-			log.Printf("Put Manifest " + item.repository + " SUCCESS")
+			log.Printf("Put Manifest " + fullName + " SUCCESS")
 		}
 	}
 	return nil
