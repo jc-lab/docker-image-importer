@@ -8,7 +8,7 @@ import (
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
-	"github.com/jc-lab/docker-image-importer/internal/registry"
+	"github.com/jc-lab/docker-registry-importer/internal/registry"
 	"github.com/opencontainers/go-digest"
 	"golang.org/x/net/proxy"
 	"io"
@@ -60,11 +60,11 @@ var regxpBlobFile, _ = regexp.Compile("^blob/([^/:]+):(.+)$")
 func main() {
 	flags := &AppFlags{}
 
-	flags.url = flag.String("url", "", "repository address")
-	flags.proxy = flag.String("proxy", "", "socks5 proxy")
 	flags.file = flag.String("file", "", "tar file to import")
-	flags.username = flag.String("username", "", "socks5 proxy")
-	flags.password = flag.String("password", "", "socks5 proxy")
+	flags.url = flag.String("url", "", "repository address")
+	flags.username = flag.String("username", "", "registry username")
+	flags.password = flag.String("password", "", "registry password")
+	flags.proxy = flag.String("proxy", "", "socks5 proxy")
 
 	flag.Parse()
 

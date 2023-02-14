@@ -17,9 +17,9 @@ jobs:
       - run: mkdir -p output
 
       - name: Build For Windows
-        run: GOOS=windows GOARCH=amd64 go build -v -o output/docker_image_importer-windows-amd64.exe github.com/jc-lab/docker-image-importer/cmd
+        run: GOOS=windows GOARCH=amd64 go build -v -o output/docker-registry-importer-windows-amd64.exe github.com/jc-lab/docker-registry-importer/cmd
       - name: Build For Linux
-        run: GOOS=linux GOARCH=amd64 go build -v -o output/docker_image_importer-linux-amd64 github.com/jc-lab/docker-image-importer/cmd
+        run: GOOS=linux GOARCH=amd64 go build -v -o output/docker-registry-importer-linux-amd64 github.com/jc-lab/docker-registry-importer/cmd
 
       - name: Release
         uses: softprops/action-gh-release@v1

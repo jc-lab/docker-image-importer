@@ -1,4 +1,4 @@
-module github.com/jc-lab/docker-image-importer
+module github.com/jc-lab/docker-registry-importer
 
 go 1.18
 
