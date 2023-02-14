@@ -70,7 +70,7 @@ func main() {
 		DisableKeepAlives: true,
 	}
 
-	if flags.proxy != nil {
+	if flags.proxy != nil && len(*flags.proxy) > 0 {
 		dialer, err := proxy.SOCKS5("tcp", *flags.proxy, nil, proxy.Direct)
 		if err != nil {
 			log.Fatalln(err)
