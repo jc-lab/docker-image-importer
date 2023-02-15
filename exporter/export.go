@@ -203,7 +203,7 @@ func (ctx *ExportContext) downloadBlob(reg *registry.Registry, repository string
 func (ctx *ExportContext) GetRegistry(registryName string, config *common.Config) (*registry.Registry, error) {
 	reg := ctx.registry[registryName]
 	if reg == nil {
-		url := strings.TrimSuffix("https://"+registryName, "/")
+		url := "https://" + registryName
 		username := ""
 		password := ""
 
@@ -221,6 +221,9 @@ func (ctx *ExportContext) GetRegistry(registryName string, config *common.Config
 				if len(repoConfig.Username) > 0 || len(repoConfig.Password) > 0 {
 					username = repoConfig.Username
 					password = repoConfig.Password
+				}
+				if len(repoConfig.Endpoint) > 0 {
+					url = strings.TrimSuffix(repoConfig.Endpoint, "/")
 				}
 			}
 		}
