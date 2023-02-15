@@ -2,7 +2,33 @@
 
 docker-registry-importer is a tool to import images from a tar (not a file saved with docker save!) file.
 
-# Usage
+# Export
+
+```text
+Usage of docker-registry-importer:
+  -export
+        export
+  -cache-dir string
+        cache directory for export
+  -config string
+        config
+  -file string
+        tar file to import
+  -include-repo-name
+        includeRepoName
+```
+
+### Example
+
+```bash
+$ docker-registry-importer --export \
+  --file images.tar \
+  --cache-dir ./cache \
+  docker.io/library/alpine:3.18 \
+  docker.io/library/busybox:1.36.0
+```
+
+# Import
 
 ```text
 Usage of docker-registry-importer:
@@ -16,6 +42,33 @@ Usage of docker-registry-importer:
         registry password
   -proxy string
         socks5 proxy (e.g. 1.2.3.4:1234)
+```
+
+### Example
+
+```bash
+$ docker-registry-importer --import \
+  --url http://docker-registry.io \
+  --file images.tar \
+  --username username \
+  --password password
+```
+
+# Config File Structure
+
+```json
+{
+  "repositories": {
+    "custom-registry-1.io": {
+      "endpoint": "http://custom-registry-1.io",
+      "username": "username",
+      "password": "password"
+    },
+    "docker.io": {
+      "endpoint": "https://registry-1.docker.io"
+    }
+  }
+}
 ```
 
 # tar archive structure
