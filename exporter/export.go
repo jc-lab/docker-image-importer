@@ -77,11 +77,6 @@ func (ctx *ExportContext) DoExport(flags *common.AppFlags) {
 		}
 		directoryName += imageName
 		directoryName += "/manifests"
-		err = os.MkdirAll(directoryName, 0755)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
 
 		_, payload, _ := manifest.Payload()
 
