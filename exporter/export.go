@@ -212,6 +212,10 @@ func (ctx *ExportContext) GetRegistry(registryName string, config *common.Config
 		username := ""
 		password := ""
 
+		if registryName == "docker.io" {
+			url = "https://registry-1.docker.io"
+		}
+
 		transport := &http.Transport{
 			DisableKeepAlives: true,
 		}
