@@ -1,16 +1,19 @@
 package exporter
 
 import (
+	"archive/tar"
 	"crypto"
 	"encoding/hex"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/jc-lab/docker-registry-importer/common"
 	"github.com/jc-lab/docker-registry-importer/internal/registry"
 	"github.com/opencontainers/go-digest"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type ExportContext struct {
@@ -18,8 +21,8 @@ type ExportContext struct {
 
 	manifests []*schema2.DeserializedManifest
 	blobs     map[string]*ExportBlobItem
-	outputDir string
-	blobDir   string
+	tempDir   string
+	cacheDir  string
 }
 
 type ExportBlobItem struct {
@@ -31,13 +34,20 @@ func (ctx *ExportContext) DoExport(flags *common.AppFlags) {
 	ctx.registry = make(map[string]*registry.Registry)
 	ctx.blobs = make(map[string]*ExportBlobItem)
 
-	ctx.outputDir = "./output"
-	ctx.blobDir = ctx.outputDir + "/blob"
-
-	err := os.MkdirAll(ctx.blobDir, 0755)
+	fileWriter, err := os.OpenFile(*flags.File, os.O_CREATE|os.O_RDWR, 0755)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 		return
+	}
+	tarWriter := tar.NewWriter(fileWriter)
+	defer tarWriter.Close()
+	defer fileWriter.Close()
+
+	ctx.tempDir = os.TempDir()
+	ctx.cacheDir = *flags.CacheDir
+
+	if len(ctx.cacheDir) > 0 {
+		_ = os.MkdirAll(ctx.cacheDir+"/blob/", 0755)
 	}
 
 	for _, imageName := range flags.ImageList {
@@ -61,9 +71,9 @@ func (ctx *ExportContext) DoExport(flags *common.AppFlags) {
 			continue
 		}
 
-		directoryName := ctx.outputDir
+		directoryName := ""
 		if *flags.IncludeRepoName {
-			directoryName += "/" + registryName + "/"
+			directoryName = registryName + "/"
 		}
 		directoryName += imageName
 		directoryName += "/manifests"
@@ -77,23 +87,40 @@ func (ctx *ExportContext) DoExport(flags *common.AppFlags) {
 
 		hash := crypto.SHA256.New()
 		hash.Write(payload)
-		digest := hash.Sum(nil)
+		d := hash.Sum(nil)
 
-		digestName := "sha256:" + hex.EncodeToString(digest)
+		digestName := "sha256:" + hex.EncodeToString(d)
 
-		os.WriteFile(directoryName+"/"+imageVersion, payload, 0644)
-		os.WriteFile(directoryName+"/"+digestName, payload, 0644)
+		for _, name := range []string{
+			directoryName + "/" + imageVersion,
+			directoryName + "/" + digestName,
+		} {
+			err = tarWriter.WriteHeader(&tar.Header{
+				Typeflag: tar.TypeReg,
+				Name:     name,
+				Size:     int64(len(payload)),
+				Mode:     0644,
+				ModTime:  time.Now(),
+			})
+			if err != nil {
+				log.Fatalln(err)
+				return
+			}
+			tarWriter.Write(payload)
+		}
 
 		ctx.manifests = append(ctx.manifests, manifest)
 
-		ctx.downloadBlob(reg, imageName, manifest.Config.Digest)
+		ctx.downloadBlob(reg, imageName, tarWriter, manifest.Config.Digest)
 		for _, layer := range manifest.Layers {
-			ctx.downloadBlob(reg, imageName, layer.Digest)
+			ctx.downloadBlob(reg, imageName, tarWriter, layer.Digest)
 		}
 	}
+
+	tarWriter.Flush()
 }
 
-func (ctx *ExportContext) downloadBlob(reg *registry.Registry, repository string, d digest.Digest) {
+func (ctx *ExportContext) downloadBlob(reg *registry.Registry, repository string, tarWriter *tar.Writer, d digest.Digest) {
 	blob := ctx.blobs[d.String()]
 	if blob != nil {
 		return
@@ -101,28 +128,81 @@ func (ctx *ExportContext) downloadBlob(reg *registry.Registry, repository string
 	blob = &ExportBlobItem{}
 	ctx.blobs[d.String()] = blob
 
-	reader, err := reg.DownloadBlob(repository, d)
-	if err != nil {
-		log.Println(err)
-		return
+	cacheDirUsable := len(ctx.cacheDir) > 0
+
+	blobFileName := ctx.tempDir + "/" + d.String()
+
+	fileToTar := func(filename string, size int64) {
+		err := tarWriter.WriteHeader(&tar.Header{
+			Typeflag: tar.TypeReg,
+			Name:     "blob/" + d.String(),
+			Size:     size,
+			Mode:     0644,
+			ModTime:  time.Now(),
+		})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		file, err := os.Open(blobFileName)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer file.Close()
+
+		_, err = io.Copy(tarWriter, file)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		blob.downloaded = true
 	}
 
-	defer reader.Close()
-
-	blobFileName := ctx.blobDir + "/" + d.String()
-	file, err := os.OpenFile(blobFileName, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		log.Println(err)
-		return
+	if cacheDirUsable {
+		blobFileName = ctx.cacheDir + "/blob/" + d.String()
+		stat, err := os.Stat(blobFileName)
+		if err == nil {
+			if checkHash(blobFileName, d) {
+				fileToTar(blobFileName, stat.Size())
+				return
+			} else {
+				log.Println("cached " + d.String() + " invalid")
+			}
+		}
 	}
 
-	_, err = file.ReadFrom(reader)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	var fileSize int64 = 0
 
-	blob.downloaded = true
+	func() {
+		reader, err := reg.DownloadBlob(repository, d)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer reader.Close()
+
+		file, err := os.OpenFile(blobFileName, os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer file.Close()
+
+		fileSize, err = file.ReadFrom(reader)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}()
+
+	fileToTar(blobFileName, fileSize)
+
+	if !cacheDirUsable {
+		_ = os.Remove(blobFileName)
+	}
 }
 
 func (ctx *ExportContext) GetRegistry(registryName string, config *common.Config) (*registry.Registry, error) {
@@ -157,4 +237,19 @@ func (ctx *ExportContext) GetRegistry(registryName string, config *common.Config
 	}
 
 	return reg, nil
+}
+
+func checkHash(filename string, d digest.Digest) bool {
+	file, err := os.Open(filename)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	hash := d.Algorithm().Digester().Hash()
+	_, err = io.Copy(hash, file)
+	if err != nil {
+		return false
+	}
+	return d.Hex() == hex.EncodeToString(hash.Sum(nil))
 }

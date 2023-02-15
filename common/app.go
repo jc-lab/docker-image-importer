@@ -13,6 +13,8 @@ type AppFlags struct {
 
 	IncludeRepoName *bool
 
+	CacheDir *string
+
 	ImageList []string
 	Config    *Config
 }

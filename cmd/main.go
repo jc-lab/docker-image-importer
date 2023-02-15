@@ -26,6 +26,7 @@ func main() {
 	flags.Proxy = flag.String("proxy", "", "socks5 proxy")
 	flags.IncludeRepoName = flag.Bool("include-repo-name", false, "includeRepoName")
 	flags.ConfigFile = flag.String("config", "", "config")
+	flags.CacheDir = flag.String("cache-dir", "", "cache directory for export")
 
 	flag.Parse()
 	flags.ImageList = flag.Args()
