@@ -55,7 +55,7 @@ func main() {
 		}
 
 		url := strings.TrimSuffix(*flags.Url, "/")
-		wrappedTransport := registry.WrapTransport(transport, url, *flags.Username, *flags.Username)
+		wrappedTransport := registry.WrapTransport(transport, url, *flags.Username, *flags.Password)
 		reg := &registry.Registry{
 			URL: url,
 			Client: &http.Client{
