@@ -3,8 +3,10 @@ module github.com/jc-lab/docker-registry-importer
 go 1.18
 
 require (
-	github.com/docker/distribution v0.0.0-20171011171712-7484e51bf6af
-	github.com/opencontainers/go-digest v1.0.0-rc1
+	github.com/distribution/reference v0.5.0
+	github.com/docker/distribution v2.8.3+incompatible
+	github.com/opencontainers/go-digest v1.0.0
+	github.com/opencontainers/image-spec v1.0.2
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 )
 
