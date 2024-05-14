@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sort"
 )
 
 type ManifestFile struct {
@@ -28,6 +29,7 @@ type ManifestFile struct {
 
 	manifest   distribution.Manifest
 	descriptor distribution.Descriptor
+	sortWeight int
 }
 
 type BlobItem struct {
@@ -222,6 +224,7 @@ func (ctx *ImportContext) readManifest(item *ManifestFile) error {
 		}
 
 	case *manifestlist.DeserializedManifestList:
+		item.sortWeight = -1
 
 	case *ocischema.DeserializedManifest:
 		for _, v := range append(m.Layers, m.Config) {
@@ -296,7 +299,20 @@ func (ctx *ImportContext) uploadBlobs(file string) error {
 }
 
 func (ctx *ImportContext) uploadManifests() error {
+	var sortedManifests []*ManifestFile
+
 	for _, item := range ctx.manifests {
+		sortedManifests = append(sortedManifests, item)
+	}
+	sort.Slice(sortedManifests, func(i, j int) bool {
+		a, b := sortedManifests[i], sortedManifests[j]
+		if a.sortWeight < b.sortWeight {
+			return false
+		}
+		return true
+	})
+
+	for _, item := range sortedManifests {
 		fullName := item.repository
 		if len(item.tag) > 0 {
 			fullName += ":" + item.name
