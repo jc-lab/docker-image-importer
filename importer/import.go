@@ -3,11 +3,14 @@ package importer
 import (
 	"archive/tar"
 	"encoding/json"
+	"github.com/docker/distribution"
 	"github.com/docker/distribution/manifest"
-	"github.com/docker/distribution/manifest/schema1"
+	"github.com/docker/distribution/manifest/manifestlist"
+	"github.com/docker/distribution/manifest/ocischema"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/jc-lab/docker-registry-importer/common"
 	"github.com/jc-lab/docker-registry-importer/internal/registry"
+	"github.com/jc-lab/docker-registry-importer/pkg/schema1ex"
 	"github.com/opencontainers/go-digest"
 	"io"
 	"log"
@@ -23,8 +26,8 @@ type ManifestFile struct {
 	tag         string
 	data        []byte
 
-	manifestV1 *schema1.Manifest
-	manifestV2 *schema2.Manifest
+	manifest   distribution.Manifest
+	descriptor distribution.Descriptor
 }
 
 type BlobItem struct {
@@ -180,20 +183,20 @@ func (ctx *ImportContext) parseArchive(file string) error {
 }
 
 func (ctx *ImportContext) readManifest(item *ManifestFile) error {
+	var err error
 	var manifestVersion manifest.Versioned
-	err := json.Unmarshal(item.data, &manifestVersion)
+	if err = json.Unmarshal(item.data, &manifestVersion); err != nil {
+		return err
+	}
+
+	item.manifest, item.descriptor, err = distribution.UnmarshalManifest(manifestVersion.MediaType, item.data)
 	if err != nil {
 		return err
 	}
 
-	switch manifestVersion.SchemaVersion {
-	case 1:
-		item.manifestV1 = &schema1.Manifest{}
-		err = json.Unmarshal(item.data, item.manifestV1)
-		if err != nil {
-			return err
-		}
-		for _, v := range item.manifestV1.FSLayers {
+	switch m := item.manifest.(type) {
+	case *schema1ex.DeserializedManifest:
+		for _, v := range m.FSLayers {
 			blob := ctx.blobs[v.BlobSum.String()]
 			if blob == nil {
 				blob = &BlobItem{
@@ -205,15 +208,9 @@ func (ctx *ImportContext) readManifest(item *ManifestFile) error {
 		}
 
 		//packedManifest = fromSchemaV1(item.data, item.manifestV1)
-		break
-	case 2:
-		item.manifestV2 = &schema2.Manifest{}
-		err = json.Unmarshal(item.data, item.manifestV2)
-		if err != nil {
-			return err
-		}
 
-		for _, v := range append(item.manifestV2.Layers, item.manifestV2.Config) {
+	case *schema2.DeserializedManifest:
+		for _, v := range append(m.Layers, m.Config) {
 			blob := ctx.blobs[v.Digest.String()]
 			if blob == nil {
 				blob = &BlobItem{
@@ -223,7 +220,23 @@ func (ctx *ImportContext) readManifest(item *ManifestFile) error {
 			}
 			blob.manifests = append(blob.manifests, item)
 		}
-		break
+
+	case *manifestlist.DeserializedManifestList:
+
+	case *ocischema.DeserializedManifest:
+		for _, v := range append(m.Layers, m.Config) {
+			blob := ctx.blobs[v.Digest.String()]
+			if blob == nil {
+				blob = &BlobItem{
+					manifests: make([]*ManifestFile, 0),
+				}
+				ctx.blobs[v.Digest.String()] = blob
+			}
+			blob.manifests = append(blob.manifests, item)
+		}
+
+	default:
+		log.Printf("UNKNOWN MANIFEST: %s", item.descriptor.MediaType)
 	}
 
 	return nil
@@ -255,6 +268,10 @@ func (ctx *ImportContext) uploadBlobs(file string) error {
 				log.Printf("empty blob: " + digestValue)
 				continue
 			}
+			if len(blob.manifests) == 0 {
+				log.Printf("NO MANIFEST FOR BLOB: %s", digestFull)
+				continue
+			}
 			manifest := blob.manifests[0]
 
 			log.Printf("UPLOAD BLOB: " + digestValue + " (" + manifest.repository + ") START")
@@ -280,29 +297,20 @@ func (ctx *ImportContext) uploadBlobs(file string) error {
 
 func (ctx *ImportContext) uploadManifests() error {
 	for _, item := range ctx.manifests {
-		if item.manifestV2 != nil {
-			fullName := item.repository
-			if len(item.tag) > 0 {
-				fullName += ":" + item.name
-			} else {
-				fullName += "@" + item.name
-			}
-
-			m := &schema2.DeserializedManifest{}
-			err := m.UnmarshalJSON(item.data)
-			if err != nil {
-				log.Printf("Put Manifest "+fullName+" FAILED: ", err)
-				continue
-			}
-
-			err = ctx.Registry.PutManifest(item.repository, item.name, m)
-			if err != nil {
-				log.Printf("Put Manifest "+fullName+" FAILED: ", err)
-				continue
-			}
-
-			log.Printf("Put Manifest " + fullName + " SUCCESS")
+		fullName := item.repository
+		if len(item.tag) > 0 {
+			fullName += ":" + item.name
+		} else {
+			fullName += "@" + item.name
 		}
+
+		err := ctx.Registry.PutManifest(item.repository, item.name, item.manifest)
+		if err != nil {
+			log.Printf("Put Manifest "+fullName+" FAILED: ", err)
+			continue
+		}
+
+		log.Printf("Put Manifest " + fullName + " SUCCESS")
 	}
 	return nil
 }
