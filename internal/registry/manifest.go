@@ -72,6 +72,10 @@ func (registry *Registry) ManifestV2(repository, reference string) (distribution
 	var output distribution.Manifest
 
 	switch contentType {
+	case manifestlist.MediaTypeManifestList:
+		deserialized := &manifestlist.DeserializedManifestList{}
+		err = deserialized.UnmarshalJSON(body)
+		output = deserialized
 	case schema2.MediaTypeManifest:
 		deserialized := &schema2.DeserializedManifest{}
 		err = deserialized.UnmarshalJSON(body)
